@@ -153,7 +153,22 @@ def find_option_instrument(config_json, index_id):
             [int(float(strike)) for strike in oc_data.keys()]
         )
 
-        spot_price = float(oc_response["data"]["last_price"])
+        security_id = str(index_id["security_id"])
+
+        quote = dhan.quote_data(
+            securities={
+                "IDX_I": [security_id]
+            }
+        )
+
+        print(quote)
+
+        if not quote["data"]:
+            raise Exception("Quote data empty. Market may be closed.")
+
+        spot_price = float(
+            quote["data"]["IDX_I"][security_id]["last_price"]
+        )
 
         nearest_diff = float("inf")
         atm_strike = None
@@ -233,3 +248,4 @@ def find_option_instrument(config_json, index_id):
 result = find_option_instrument(config_json, index_id)
 
 print(result)
+#print(dir(dhan))
