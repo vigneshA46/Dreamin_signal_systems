@@ -90,8 +90,8 @@ config_json={
       "market_type": "options",
       "option_type": "Put",
       "strike_type": {
-        "type": "atm_spot",
-        "value": "ATM"
+        "type": "premium_nearest",
+        "value": "20"
       }
     }
   ]
@@ -111,6 +111,22 @@ def find_option_instrument(config_json, index_id):
     final_instruments = []
     expiry_cache = {}
     option_chain_cache = {}
+    ticker = dhan.ticker_data(
+    securities={
+        "IDX_I": [int(security_id)]
+        }
+    )
+
+    print("TICKER:", ticker)
+
+    if ticker["status"] != "success":
+        raise Exception(f"Ticker API Failed: {ticker}")
+
+    spot_price = float(
+        ticker["data"]["data"]["IDX_I"][index_id["security_id"]]["last_price"]
+    )
+
+    print("SPOT PRICE:", spot_price)
 
     for leg in config_json["legs"]:
 
@@ -153,22 +169,7 @@ def find_option_instrument(config_json, index_id):
             [int(float(strike)) for strike in oc_data.keys()]
         )
 
-        security_id = str(index_id["security_id"])
-
-        quote = dhan.quote_data(
-            securities={
-                "IDX_I": [security_id]
-            }
-        )
-
-        print(quote)
-
-        if not quote["data"]:
-            raise Exception("Quote data empty. Market may be closed.")
-
-        spot_price = float(
-            quote["data"]["IDX_I"][security_id]["last_price"]
-        )
+        #security_id = str(index_id["security_id"])
 
         nearest_diff = float("inf")
         atm_strike = None
@@ -184,12 +185,10 @@ def find_option_instrument(config_json, index_id):
 
         selected_strike = atm_strike
 
-        #ATM
         if strike_type == "atm_spot":
 
             selected_strike = atm_strike
 
-        #OTM
         elif strike_type == "otm_points":
 
             points = int(strike_value) if str(strike_value).isdigit() else 0
@@ -200,7 +199,6 @@ def find_option_instrument(config_json, index_id):
             else:
                 selected_strike = atm_strike - points
 
-        #ITM
         elif strike_type == "itm_points":
 
             points = int(strike_value) if str(strike_value).isdigit() else 0
@@ -210,6 +208,140 @@ def find_option_instrument(config_json, index_id):
 
             else:
                 selected_strike = atm_strike + points
+
+        elif strike_type == "premium_nearest":
+
+            target_premium = float(strike_value)
+
+            nearest_diff = float("inf")
+
+            for strike_key_loop, data in oc_data.items():
+
+                option_data = data["ce"] if option_type == "Call" else data["pe"]
+
+                premium = float(option_data["last_price"])
+
+                diff = abs(premium - target_premium)
+
+                if diff < nearest_diff:
+
+                    nearest_diff = diff
+                    selected_strike = int(float(strike_key_loop))
+
+        elif strike_type == "premium_lt":
+
+            target_premium = float(strike_value)
+
+            valid_strikes = []
+
+            for strike_key_loop, data in oc_data.items():
+
+                option_data = data["ce"] if option_type == "Call" else data["pe"]
+
+                premium = float(option_data["last_price"])
+
+                if premium < target_premium:
+
+                    valid_strikes.append(
+                        (
+                            abs(premium - target_premium),
+                            int(float(strike_key_loop))
+                        )
+                    )
+
+            if valid_strikes:
+                selected_strike = min(valid_strikes)[1]
+
+        elif strike_type == "premium_gt":
+
+            target_premium = float(strike_value)
+
+            valid_strikes = []
+
+            for strike_key_loop, data in oc_data.items():
+
+                option_data = data["ce"] if option_type == "Call" else data["pe"]
+
+                premium = float(option_data["last_price"])
+
+                if premium > target_premium:
+
+                    valid_strikes.append(
+                        (
+                            abs(premium - target_premium),
+                            int(float(strike_key_loop))
+                        )
+                    )
+
+            if valid_strikes:
+                selected_strike = min(valid_strikes)[1]
+
+        elif strike_type == "delta_nearest":
+
+            target_delta = abs(float(strike_value))
+
+            nearest_diff = float("inf")
+
+            for strike_key_loop, data in oc_data.items():
+
+                option_data = data["ce"] if option_type == "Call" else data["pe"]
+
+                delta = abs(float(option_data["greeks"]["delta"]))
+
+                diff = abs(delta - target_delta)
+
+                if diff < nearest_diff:
+
+                    nearest_diff = diff
+                    selected_strike = int(float(strike_key_loop))
+
+        elif strike_type == "delta_lt":
+
+            target_delta = abs(float(strike_value))
+
+            valid_strikes = []
+
+            for strike_key_loop, data in oc_data.items():
+
+                option_data = data["ce"] if option_type == "Call" else data["pe"]
+
+                delta = abs(float(option_data["greeks"]["delta"]))
+
+                if delta < target_delta:
+
+                    valid_strikes.append(
+                        (
+                            abs(delta - target_delta),
+                            int(float(strike_key_loop))
+                        )
+                    )
+
+            if valid_strikes:
+                selected_strike = min(valid_strikes)[1]
+
+        elif strike_type == "delta_gt":
+
+            target_delta = abs(float(strike_value))
+
+            valid_strikes = []
+
+            for strike_key_loop, data in oc_data.items():
+
+                option_data = data["ce"] if option_type == "Call" else data["pe"]
+
+                delta = abs(float(option_data["greeks"]["delta"]))
+
+                if delta > target_delta:
+
+                    valid_strikes.append(
+                        (
+                            abs(delta - target_delta),
+                            int(float(strike_key_loop))
+                        )
+                    )
+
+            if valid_strikes:
+                selected_strike = min(valid_strikes)[1]
 
         strike_key = f"{float(selected_strike):.6f}"
 

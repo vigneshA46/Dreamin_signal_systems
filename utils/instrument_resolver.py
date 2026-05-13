@@ -2,20 +2,20 @@ from dhanhq import dhanhq,DhanContext
 import pandas as pd
 
 CLIENT_ID = "1107425275"
-ACCESS_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiJ9.eyJpc3MiOiJkaGFuIiwicGFydG5lcklkIjoiIiwiZXhwIjoxNzc4NjI0NzMzLCJpYXQiOjE3Nzg1MzgzMzMsInRva2VuQ29uc3VtZXJUeXBlIjoiQVBQIiwiZGhhbkNsaWVudElkIjoiMTEwNzQyNTI3NSJ9.sXI2ayffbZ9elKujdnwOH7DMMVEch7GvMfbf3uSQPMjqmpnicSI8Hb79pnxA-lSSaPtt557eWE2VsjHOf1_eAA"
+ACCESS_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiJ9.eyJpc3MiOiJkaGFuIiwicGFydG5lcklkIjoiIiwiZXhwIjoxNzc4Njk2NDEwLCJpYXQiOjE3Nzg2MTAwMTAsInRva2VuQ29uc3VtZXJUeXBlIjoiQVBQIiwiZGhhbkNsaWVudElkIjoiMTEwNzQyNTI3NSJ9.slq_Fs8fDmTf2KW93GR5LCh9zVAal-Aq-XAYQHuWSId82tFlv8-gdJy8VYtZPYVKMSisRq1h3Yf2ixD4o1-Kag"
 
 dhan_context = DhanContext(CLIENT_ID, ACCESS_TOKEN)
 dhan=dhanhq(dhan_context)
 
 
 def option_chain(security_id, expiry):
-
     oc = dhan.option_chain(
         under_security_id=int(security_id),
         under_exchange_segment="IDX_I",
-        expiry=str(expiry)
+        expiry=expiry
     )
-    #print(oc)
+
+    #print("OC", oc) 
 
     if oc["status"] != "success":
         raise Exception(f"Option Chain API Failed: {oc}")
