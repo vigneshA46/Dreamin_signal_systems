@@ -1,6 +1,6 @@
 from utils.instrument_resolver import dhan,get_next_expiry, option_chain
 
-
+"""
 #print(dhan.get_fund_limits())
 config_json={
   "legs": [
@@ -103,6 +103,7 @@ index_id ={
   "exchange_id": "NSE",
   "security_id": "13"
 }
+"""
 
 def find_option_instrument(config_json, index_id):
 
@@ -377,7 +378,7 @@ def find_option_instrument(config_json, index_id):
     return final_instruments
 
 
-result = find_option_instrument(config_json, index_id)
+#result = find_option_instrument(config_json, index_id)
 
-print(result)
+#print(result)
 #print(dir(dhan))

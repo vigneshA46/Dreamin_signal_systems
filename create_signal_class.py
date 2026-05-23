@@ -66,6 +66,7 @@ class PaperEngine:
         # EXIT ALL AT EXIT TIME
         if now >= exit_time:
             self._exit_all()
+            self.global_exit = True
             return
 
         # MOMENTUM CHECK
