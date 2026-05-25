@@ -290,7 +290,7 @@ def find_option_instrument(config_json, index_id):
                 delta = abs(float(option_data["greeks"]["delta"]))
 
                 diff = abs(delta - target_delta)
-
+  
                 if diff < nearest_diff:
 
                     nearest_diff = diff
@@ -369,10 +369,21 @@ def find_option_instrument(config_json, index_id):
             instrument = strike_data["pe"]
 
         final_instruments.append({
+
+            "id": leg["id"],
             "security_id": instrument["security_id"],
+            "trading_symbol": instrument["trading_symbol"],
             "expiry": expiry,
             "strike": selected_strike,
-            "option_type": option_type
+            "option_type": option_type,
+            "position": leg["position"],
+            "side": leg["side"],
+            "qty": leg["qty"],
+            "entry": leg["entry"],
+            "target": leg["target"],
+            "stoploss": leg["stoploss"],
+            "trailing": leg["trailing"],
+            "entry_price": instrument["last_price"]
         })
 
     return final_instruments
