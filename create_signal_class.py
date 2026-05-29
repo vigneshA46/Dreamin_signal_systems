@@ -1,12 +1,15 @@
 import datetime
 from zoneinfo import ZoneInfo
+from dispatcher import publish
 
 IST = ZoneInfo("Asia/Kolkata")
 
 
 class PaperEngine:
 
-    def __init__(self, entry_settings, legs, underlying="NIFTY"):
+    def __init__(self,strategy_id, entry_settings, legs, underlying="NIFTY"):
+        self.strategy_id = strategy_id
+        self.strategy = {"entry_settings": entry_settings,"legs": legs,"underlying": underlying}
         self.config = entry_settings
         self.legs_config = legs
         self.underlying = underlying
@@ -28,8 +31,6 @@ class PaperEngine:
                 "entry_price": None,
                 "qty": 0,
                 "pnl": 0,
-                "peak_pnl": 0,
-                "trail_sl": None,
                 "peak_pnl": 0,
                 "trail_sl": None,
                 "tsl_active_hit": False,
@@ -178,18 +179,30 @@ class PaperEngine:
         if leg["entry"]["type"] != "current_price":
             return
 
-        if tick["symbol"] != self.underlying:
+        if tick["symbol"] != leg["symbol"]:
             return
 
-        symbol = self._resolve_option_symbol(leg, tick["ltp"])
-
-        qty = leg["lots"] * 50
+        symbol = leg["symbol"]
+        qty = leg["qty"]
 
         leg_state["status"] = "OPEN"
         leg_state["symbol"] = symbol
         leg_state["qty"] = qty
+        leg_state["entry_price"] = float(tick["ltp"])
 
-        print(f"ENTERED {symbol}")
+        #print(f"ENTERED {symbol}")
+        signal = {
+            "event": "ENTRY",
+            "strategy_id": self.strategy_id,
+            "symbol": leg["symbol"],
+            "security_id": leg["security_id"],
+            "side": leg["position"],
+            "qty": leg["qty"],
+            "price": tick["ltp"]
+        }
+
+        publish("trade_execution", signal)
+        print("ENTRY SIGNAL :", signal)
 
     
     # --------------------------
@@ -263,7 +276,7 @@ class PaperEngine:
 
         if pnl <= leg_state["trail_sl"]:
             print(f"TSL HIT for {leg_state['symbol']}")
-            self._exit_leg(leg_state, "TSL")
+            self._exit_leg(leg,leg_state, ltp, "TSL")
             return True
 
         return False
@@ -330,13 +343,9 @@ class PaperEngine:
         if tick["symbol"] != leg_state["symbol"]:
             return
 
-        ltp = tick["ltp"]
-        entry = leg_state["entry_price"]
+        ltp = float(tick["ltp"])
+        entry = float(leg_state["entry_price"])
         qty = leg_state["qty"]
-
-        if entry is None:
-            leg_state["entry_price"] = ltp
-            return
 
         pnl = (ltp - entry) * qty
         leg_state["pnl"] = pnl
@@ -355,7 +364,7 @@ class PaperEngine:
         if leg["target"]["enabled"]:
             if pnl >= leg["target"]["value"]:
                 print(f"TARGET HIT for {leg_state['symbol']}")
-                self._exit_leg(leg_state , "Target HIT")
+                self._exit_leg(leg, leg_state, ltp, "Target HIT")
                 return
 
         # --------------------------
@@ -365,16 +374,29 @@ class PaperEngine:
         if leg["stoploss"]["enabled"]:
             if pnl <= -leg["stoploss"]["value"]:
                 print(f"SL HIT for {leg_state['symbol']}")
-                self._exit_leg(leg_state , "SL HIT")
+                self._exit_leg(leg, leg_state ,ltp, "SL HIT")
                 return
     # --------------------------
     # EXIT LEG
     # --------------------------
 
-    def _exit_leg(self, leg_state, reason="UNKNOWN"):
+    def _exit_leg(self,leg, leg_state, ltp, reason="UNKNOWN"):
         leg_state["status"] = "CLOSED"
         leg_state["last_exit_reason"] = reason
 
+        signal = {
+            "event": "EXIT",
+            "strategy_id": self.strategy_id,
+            "symbol": leg["symbol"],
+            "security_id": leg["security_id"],
+            "side": "SELL" if leg["position"] == "Buy" else "BUY",
+            "qty": leg["qty"],
+            "price": ltp,
+            "reason": reason
+        }
+
+        publish("trade_execution", signal)
+        print("EXIT SIGNAL :", signal)
         print(f"EXITED {leg_state['symbol']} | REASON: {reason}")
     
     
@@ -407,7 +429,7 @@ class PaperEngine:
             if leg_state["entry_price"] is None:
                 continue
 
-            pnl = (tick["ltp"] - leg_state["entry_price"]) * leg_state["qty"]
+            pnl = (float(tick["ltp"]) - leg_state["entry_price"]) * leg_state["qty"]
 
             leg_state["pnl"] = pnl
             total += pnl
@@ -416,19 +438,6 @@ class PaperEngine:
 
         print("TOTAL PNL:", total)
 
-    # --------------------------
-    # OPTION RESOLVER
-    # --------------------------
-
-    def _resolve_option_symbol(self, leg, price):
-
-        strike = round(price / 50) * 50
-
-        option_type = "CE" if leg["option_type"] == "Call" else "PE"
-
-        expiry = "THISWEEK"
-
-        return f"{self.underlying}_{expiry}_{strike}_{option_type}"
 
     # --------------------------
     # UTILS

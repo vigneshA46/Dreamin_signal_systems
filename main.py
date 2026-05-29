@@ -1,186 +1,131 @@
-from fastapi import FastAPI
-from pydantic import BaseModel
-from typing import Dict, Any
-from uuid import uuid4
-
-app = FastAPI()
-
-strategies = {}
+import asyncio
+from dhanhq import MarketFeed
+from dhanhq import dhanhq,DhanContext
+from dhan_token import get_access_token
 
 
-class StrategyRequest(BaseModel):
-    entry_settings: Dict[str, Any]
-    config_json: Dict[str, Any]
-    index_id: Dict[str, Any]
+CLIENT_ID = "1107425275"
+ACCESS_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiJ9.eyJpc3MiOiJkaGFuIiwicGFydG5lcklkIjoiIiwiZXhwIjoxNzgwMTExMTI0LCJpYXQiOjE3ODAwMjQ3MjQsInRva2VuQ29uc3VtZXJUeXBlIjoiQVBQIiwiZGhhbkNsaWVudElkIjoiMTEwNzQyNTI3NSJ9.JjKLd6wa6YyeQQ1g-nYSNkV2RKI7GQ3RSlEaKq3tOhnlQ11Ud82p9HMcssarsi57nI4j4otL_lTs17ixU-QQIQ"
+
+dhan_context = DhanContext(CLIENT_ID, ACCESS_TOKEN)
+dhan=dhanhq(dhan_context)
 
 
-VALID_POSITIONS = ["Buy", "Sell"]
-VALID_OPTION_TYPES = ["Call", "Put"]
+engines = {}
 
 
-def validate_strategy(config_json, index_id):
+def register_engine(strategy_id, engine):
 
-    if "legs" not in config_json:
-        raise Exception("legs missing")
+    engines[strategy_id] = engine
+    print(f"ENGINE REGISTERED : {strategy_id}")
 
-    if len(config_json["legs"]) == 0:
-        raise Exception("No legs provided")
+def remove_engine(strategy_id):
 
-    validated_legs = []
+    if strategy_id in engines:
 
-    for leg in config_json["legs"]:
+        del engines[strategy_id]
 
-        if leg["position"] not in VALID_POSITIONS:
-            raise Exception("Invalid position")
+        print(f"ENGINE REMOVED : {strategy_id}")
 
-        if leg["option_type"] not in VALID_OPTION_TYPES:
-            raise Exception("Invalid option type")
+def build_subscription_list():
 
-        if leg["lots"] <= 0:
-            raise Exception("Lots should be greater than 0")
+    instruments = []
+    added = set()
 
-        if leg["target"]["enabled"]:
+    for engine in engines.values():
 
-            if leg["target"]["value"] <= 0:
-                raise Exception("Invalid target value")
-
-        if leg["stoploss"]["enabled"]:
-
-            if leg["stoploss"]["value"] <= 0:
-                raise Exception("Invalid stoploss value")
-
-        validated_legs.append(leg)
-
-    if "symbol" not in index_id:
-        raise Exception("Index symbol missing")
-    
-    return {
-        "legs": validated_legs,
-        "index": index_id
-    }
-
-def normalize_strategy(config_json, index_id):
-
-    normalized_legs = []
-
-    for leg in config_json["legs"]:
-
-        position = leg["position"]
-
-        side = 1 if position == "Buy" else -1
-
-        option_type = leg["option_type"]
-
-        option_code = "CE" if option_type == "Call" else "PE"
-
-        expiry = leg["expiry"]
-
-        if expiry == "This Week":
-
-            expiry_index = 0
-
-        elif expiry == "Next Week":
-
-            expiry_index = 1
-
-        else:
-
-            expiry_index = 0
-
-        strike_type = leg["strike_type"]["type"]
-
-        strike_value = leg["strike_type"]["value"]
-
-        qty = leg["lots"] * index_id["lot_size"]
-        normalized_leg = {"id": leg["id"],
-
-            "side": side,
-            "position": position,
-            "option_type": option_code,
-            "lots": leg["lots"],
-            "qty": qty,
-            "market_type": leg["market_type"],
-            "entry": leg["entry"],
-            "target": leg["target"],
-            "stoploss": leg["stoploss"],
-            "trailing": leg["trailing"],
-            "expiry": expiry,
-            "expiry_index": expiry_index,
-
-            "strike_type": {
-                "type": strike_type,
-                "value": strike_value
-            }
-        }
-
-        normalized_legs.append(normalized_leg)
-
-    normalized_strategy = {
-
-        "symbol": index_id["symbol"],
-        "exchange": index_id["exchange_id"],
-        "security_id": index_id["security_id"],
-        "lot_size": index_id["lot_size"],
-        "legs": normalized_legs
-    }
-
-    return normalized_strategy
-
-@app.post("/create-strategy")
-async def create_strategy(request: StrategyRequest):
-
-    try:
-
-        data = request.model_dump()
-
-        print("RAW REQUEST RECEIVED")
-        print(data)
-
-        validated_data = validate_strategy(
-            data["config_json"],
-            data["index_id"]
+        underlying = (
+            MarketFeed.IDX,
+            str(engine.strategy["security_id"]),
+            MarketFeed.Quote
         )
 
-        print("\nVALIDATION SUCCESS")
+        if underlying not in added:
 
-        normalized_data = normalize_strategy(
-            data["config_json"],
-            data["index_id"]
-        )
+            instruments.append(underlying)
 
-        print("\nNORMALIZATION SUCCESS")
+            added.add(underlying)
 
-        strategy_id = str(uuid4())
-        strategies[strategy_id] = validated_data
+        for leg in engine.strategy["legs"]:
 
-        print(f"\nSTRATEGY CREATED : {strategy_id}")
+            option = (
+                MarketFeed.NSE_FNO,
+                str(leg["security_id"]),
+                MarketFeed.Quote
+            )
 
-        return {
-            "status": "success",
-            "strategy_id": strategy_id,
-            "data": normalized_data
-        }
+            if option not in added:
 
-    except Exception as e:
+                instruments.append(option)
 
-        return {
-            "status": "error",
-            "message": str(e)
-        }
+                added.add(option)
 
-@app.get("/strategy/{strategy_id}")
-async def get_strategy(strategy_id: str):
+    return instruments
 
-    strategy = strategies.get(strategy_id)
+async def market_feed_loop():
 
-    if not strategy:
+    while True:
 
-        return {
-            "status": "error",
-            "message": "Strategy not found"
-        }
+        try:
 
-    return {
-        "status": "success",
-        "data": strategy
-    }
+            instruments = build_subscription_list()
+
+            if not instruments:
+
+                await asyncio.sleep(1)
+
+                continue
+
+            print("SUBSCRIBING :", instruments)
+
+            feed = MarketFeed(dhan_context,instruments=instruments,version="v2")
+
+            feed.run_forever()
+
+            while True:
+
+                data = feed.get_data()
+
+                if not data:
+                    continue
+
+                tick = {
+                    "security_id": str(
+                        data.get("security_id")
+                    ),
+
+                    "symbol": next(
+                            (
+                                leg["symbol"]
+                                for engine in engines.values()
+                                for leg in engine.strategy["legs"]
+                                if str(leg["security_id"])== str(data.get("security_id"))),
+                                "UNKNOWN"),
+                    "ltp": float(data.get("LTP"))
+                }
+
+                print("\nLIVE TICK :", tick)
+
+                for strategy_id, engine in engines.items():
+
+                    try:
+
+                        engine.on_tick(tick)
+
+                    except Exception as e:
+
+                        print(
+                            f"ENGINE ERROR "
+                            f"{strategy_id} : {str(e)}"
+                        )
+
+        except Exception as e:
+
+            print("FEED ERROR :", str(e))
+            await asyncio.sleep(5)
+
+async def start_market_feed():
+
+    asyncio.create_task(market_feed_loop())
+
+    print("MARKET FEED STARTED")

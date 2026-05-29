@@ -105,6 +105,7 @@ index_id ={
 }
 """
 
+
 def find_option_instrument(config_json, index_id):
 
     security_id = index_id["security_id"]
@@ -163,6 +164,7 @@ def find_option_instrument(config_json, index_id):
         oc_data = oc_response["data"]["oc"]
 
         option_type = leg["option_type"]
+        print("RESOLVED option_type:", option_type)
         strike_type = leg["strike_type"]["type"]
         strike_value = leg["strike_type"]["value"]
 
@@ -350,29 +352,42 @@ def find_option_instrument(config_json, index_id):
             raise Exception(f"Strike {selected_strike} not found in option chain")
 
         strike_data = oc_data[strike_key]
+        print("STRIKE DATA =", strike_data)
+        print("CE DATA =", strike_data.get("ce"))
+        print("PE DATA =", strike_data.get("pe"))
         #print("ATM STRIKE:", atm_strike)
         #print("SELECTED STRIKE:", selected_strike)
         #print("STRIKE DATA:", strike_data)
 
-        if option_type == "Call":
+        if option_type == "CE":
 
             if "ce" not in strike_data:
                 raise Exception(f"CE data missing for strike {selected_strike}")
-
+            print("TAKING CE")
             instrument = strike_data["ce"]
 
         else:
 
             if "pe" not in strike_data:
                 raise Exception(f"PE data missing for strike {selected_strike}")
-
+            print("TAKING PE")
             instrument = strike_data["pe"]
+        print("INSTRUMENT DATA")
+
+        trading_symbol = (
+            f"{index_id['symbol']}"
+            f"{selected_strike}"
+            f"{option_type}"
+        )
+
+        print(instrument)
+
 
         final_instruments.append({
 
             "id": leg["id"],
             "security_id": instrument["security_id"],
-            "trading_symbol": instrument["trading_symbol"],
+            "trading_symbol":trading_symbol,
             "expiry": expiry,
             "strike": selected_strike,
             "option_type": option_type,
