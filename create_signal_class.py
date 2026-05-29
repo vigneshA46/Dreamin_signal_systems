@@ -97,7 +97,7 @@ class PaperEngine:
         if tick["symbol"] != self.underlying:
             return True
 
-        move = tick["ltp"] - self.state["reference_price"]
+        move = float(tick["ltp"]) - float(self.state["reference_price"])
 
         return move >= m["value"]
 
