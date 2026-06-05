@@ -1,34 +1,43 @@
+from dhanhq import dhanhq,DhanContext
+import pandas as pd
 
-def option_chain(security_id , expiry):
+CLIENT_ID = "1107425275"
+ACCESS_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiJ9.eyJpc3MiOiJkaGFuIiwicGFydG5lcklkIjoiIiwiZXhwIjoxNzgwMTExMTI0LCJpYXQiOjE3ODAwMjQ3MjQsInRva2VuQ29uc3VtZXJUeXBlIjoiQVBQIiwiZGhhbkNsaWVudElkIjoiMTEwNzQyNTI3NSJ9.JjKLd6wa6YyeQQ1g-nYSNkV2RKI7GQ3RSlEaKq3tOhnlQ11Ud82p9HMcssarsi57nI4j4otL_lTs17ixU-QQIQ"
 
+dhan_context = DhanContext(CLIENT_ID, ACCESS_TOKEN)
+dhan=dhanhq(dhan_context)
+
+
+def option_chain(security_id, expiry):
     oc = dhan.option_chain(
-        under_security_id=security,
+        under_security_id=int(security_id),
         under_exchange_segment="IDX_I",
-        expiry=expiry 
+        expiry=expiry
     )
 
-    option_data = oc["data"]["data"]["oc"]
+    #print("OC", oc) 
 
+    if oc["status"] != "success":
+        raise Exception(f"Option Chain API Failed: {oc}")
+
+    return oc["data"]
 
 
 def get_next_expiry(security_id, index):
-    """
-    Returns current/next NIFTY expiry date
-    directly from Dhan expiry list API
-    """
 
     expiries = dhan.expiry_list(
-        under_security_id=security_id,
+        under_security_id=int(security_id),
         under_exchange_segment="IDX_I"
     )
 
-    expiry_list = expiries["data"]
+    #print(expiries)
 
-    # first expiry is always nearest expiry
-    next_expiry = expiry_list["data"][index]
+    if expiries["status"] != "success":
+        raise Exception(f"Expiry API Failed: {expiries}")
 
-    return next_expiry
+    expiry_list = expiries["data"]["data"]
 
+    return expiry_list[index]
 
 
 
