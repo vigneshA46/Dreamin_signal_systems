@@ -1,8 +1,88 @@
 import datetime
 from zoneinfo import ZoneInfo
 from dispatcher import publish
+from signal_emitter import emit_signal
+import asyncio
+import threading
+import requests
 
 IST = ZoneInfo("Asia/Kolkata")
+
+loop = asyncio.new_event_loop()
+
+def start_loop():
+    asyncio.set_event_loop(loop)
+    loop.run_forever()
+
+threading.Thread(target=start_loop, daemon=True).start()
+
+def run_async(coro):
+    try:
+        if asyncio.iscoroutine(coro):
+            asyncio.run_coroutine_threadsafe(coro, loop)
+        else:
+            print("❌ Not coroutine:", coro)
+    except Exception as e:
+        print("WS error: ", e)
+
+def get_today_deployments(strategy_id):
+    url = f"https://algoapi.dreamintraders.in/api/deployments/today/{strategy_id}"
+
+    try:
+        response = requests.get(url, timeout=10)
+
+        # Raise error if status not 200
+        response.raise_for_status()
+
+        data = response.json()
+
+        # 👉 store in variable (this is what you asked)
+        user_deployments = data
+
+        return user_deployments
+
+    except requests.exceptions.RequestException as e:
+        print("API Error:", e)
+        return None
+
+def group_users_by_broker(deployments):
+    grouped = {}
+
+    if not deployments:
+        return grouped
+
+    for d in deployments:
+
+        if d["type"] == "paper":
+            continue
+        broker = d.get("broker_name")
+
+        if not broker:
+            continue
+
+        if broker not in grouped:
+            grouped[broker] = []
+
+        grouped[broker].append(d)
+
+    return grouped
+
+
+def build_payload(strategy_id, users, leg, side, event_type, price, reason="", pnl=0, cum_pnl=0):
+    return {
+        "strategy_id": strategy_id,
+        "users": users,
+        "event_type": event_type,
+        "side": side,
+        "quantity": leg["qty"],
+        "security_id": leg["security_id"],
+        "leg_name": leg["symbol"],
+        "symbol": leg["symbol"],
+        "price": price,
+        "pnl": pnl,
+        "cum_pnl": cum_pnl,
+        "reason": reason
+    }
 
 
 class PaperEngine:
@@ -22,6 +102,10 @@ class PaperEngine:
         }
 
         self._init_legs()
+        deployments = get_today_deployments(self.strategy_id)
+        self.users = group_users_by_broker(deployments)
+
+        print("USERS:", self.users)
 
     def _init_legs(self):
         for leg in self.legs_config:
@@ -191,18 +275,21 @@ class PaperEngine:
         leg_state["entry_price"] = float(tick["ltp"])
 
         #print(f"ENTERED {symbol}")
-        signal = {
-            "event": "ENTRY",
-            "strategy_id": self.strategy_id,
-            "symbol": leg["symbol"],
-            "security_id": leg["security_id"],
-            "side": leg["position"],
-            "qty": leg["qty"],
-            "price": tick["ltp"]
-        }
+        signal = build_payload(
+            strategy_id=self.strategy_id,
+            users=self.users,
+            leg=leg,
+            side=leg["position"].upper(),
+            event_type="ENTRY",
+            price=tick["ltp"],
+            pnl=0,
+            cum_pnl=self.state["pnl"]
+        )
 
         publish("trade_execution", signal)
+        run_async(emit_signal(signal))
         print("ENTRY SIGNAL :", signal)
+        print("ENTRY USERS :", self.users)
 
     
     # --------------------------
@@ -384,18 +471,26 @@ class PaperEngine:
         leg_state["status"] = "CLOSED"
         leg_state["last_exit_reason"] = reason
 
-        signal = {
-            "event": "EXIT",
-            "strategy_id": self.strategy_id,
-            "symbol": leg["symbol"],
-            "security_id": leg["security_id"],
-            "side": "SELL" if leg["position"] == "Buy" else "BUY",
-            "qty": leg["qty"],
-            "price": ltp,
-            "reason": reason
-        }
+        exit_side = (
+            "SELL"
+            if leg["position"] == "Buy"
+            else "BUY"
+        )
+
+        signal = build_payload(strategy_id=self.strategy_id,
+            users=self.users,
+            leg=leg,
+            side=exit_side,
+            event_type="EXIT",
+            price=ltp,
+            pnl=leg_state["pnl"],
+            cum_pnl=self.state["pnl"],
+            reason=reason)
 
         publish("trade_execution", signal)
+        run_async(
+            emit_signal(signal)
+        )
         print("EXIT SIGNAL :", signal)
         print(f"EXITED {leg_state['symbol']} | REASON: {reason}")
     
@@ -404,10 +499,21 @@ class PaperEngine:
 
         print("🚨 EXITING ALL LEGS")
 
-        for leg_state in self.state["legs"].values():
-            if leg_state["status"] == "OPEN":
-                leg_state["status"] = "CLOSED"
-                print(f"FORCE EXIT {leg_state['symbol']}")
+        for leg in self.legs_config:
+
+            leg_state = self.state["legs"][leg["id"]]
+
+            if leg_state["status"] != "OPEN":
+                continue
+
+            ltp = leg_state["entry_price"]
+
+            self._exit_leg(
+                leg,
+                leg_state,
+                ltp,
+                "FORCED_EXIT"
+            )
 
                 
     # --------------------------
@@ -445,3 +551,4 @@ class PaperEngine:
 
     def _parse_time(self, t):
         return datetime.datetime.strptime(t, "%H:%M").time()
+    
